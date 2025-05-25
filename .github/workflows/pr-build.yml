@@ -99,7 +99,7 @@ jobs:
         shell: bash
         if: success()
         run: |
-          git fetch --prune --unshallow
+          git fetch --prune --depth 1000000
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
@@ -185,7 +185,7 @@ jobs:
       - name: 'Fetch Git Tags'
         if: success()
         run: |
-          git fetch --prune --unshallow
+          git fetch --prune --depth 1000000
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
@@ -196,7 +196,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture amd64
           sudo apt update
-          sudo apt install \
+          sudo apt install -y \
           cmake \
           pkg-config \
           git \
@@ -298,7 +298,7 @@ jobs:
       - name: 'Fetch Git Tags'
         if: success()
         run: |
-          git fetch --prune --unshallow
+          git fetch --prune --depth 1000000
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
