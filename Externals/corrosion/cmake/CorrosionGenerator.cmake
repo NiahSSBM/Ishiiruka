@@ -4,6 +4,8 @@ function(_cargo_metadata out manifest)
     set(MULTI_VALUE_KEYWORDS "")
     cmake_parse_arguments(PARSE_ARGV 2 CM "${OPTIONS}" "${ONE_VALUE_KEYWORDS}" "${MULTI_VALUE_KEYWORDS}")
 
+    list(APPEND CMAKE_MESSAGE_CONTEXT "_cargo_metadata")
+
     if(DEFINED CM_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Internal error - unexpected arguments: ${CM_UNPARSED_ARGUMENTS}")
     elseif(DEFINED CM_KEYWORDS_MISSING_VALUES)
@@ -77,7 +79,6 @@ function(_generator_add_package_targets)
         string(JSON target_name GET "${target}" "name")
         string(JSON target_kind GET "${target}" "kind")
         string(JSON target_kind_len LENGTH "${target_kind}")
-        string(JSON target_name GET "${target}" "name")
 
         math(EXPR target_kind_len-1 "${target_kind_len} - 1")
         set(kinds)
@@ -104,10 +105,19 @@ function(_generator_add_package_targets)
         endif()
 
         if("staticlib" IN_LIST kinds OR "cdylib" IN_LIST kinds)
+            # Explicitly set library names have always been forbidden from using dashes (by cargo).
+            # Starting with Rust 1.79, names inherited from the package name will have dashes replaced
+            # by underscores too. Corrosion will thus replace dashes with underscores, to make the target
+            # name consistent independent of the Rust version. `bin` target names are not affected.
+            # See https://github.com/corrosion-rs/corrosion/issues/501 for more details.
+            string(REPLACE "\-" "_" target_name "${target_name}")
+
             set(archive_byproducts "")
             set(shared_lib_byproduct "")
             set(pdb_byproduct "")
 
+            add_library(${target_name} INTERFACE)
+            _corrosion_initialize_properties(${target_name})
             _corrosion_add_library_target(
                 WORKSPACE_MANIFEST_PATH "${workspace_manifest_path}"
                 TARGET_NAME "${target_name}"
@@ -148,10 +158,13 @@ function(_generator_add_package_targets)
                 )
             endif()
             list(APPEND corrosion_targets ${target_name})
+            set_property(TARGET "${target_name}" PROPERTY INTERFACE_COR_CARGO_PACKAGE_NAME "${package_name}" )
         # Note: "bin" is mutually exclusive with "staticlib/cdylib", since `bin`s are seperate crates from libraries.
         elseif("bin" IN_LIST kinds)
             set(bin_byproduct "")
             set(pdb_byproduct "")
+            add_executable(${target_name} IMPORTED GLOBAL)
+            _corrosion_initialize_properties(${target_name})
             _corrosion_add_bin_target("${workspace_manifest_path}" "${target_name}"
                 "bin_byproduct" "pdb_byproduct"
             )
@@ -180,6 +193,7 @@ function(_generator_add_package_targets)
                 )
             endif()
             list(APPEND corrosion_targets ${target_name})
+            set_property(TARGET "${target_name}" PROPERTY INTERFACE_COR_CARGO_PACKAGE_NAME "${package_name}" )
         else()
             # ignore other kinds (like examples, tests, build scripts, ...)
         endif()
@@ -207,6 +221,7 @@ function(_generator_add_cargo_targets)
         "${multi_value_args}"
         ${ARGN}
     )
+    list(APPEND CMAKE_MESSAGE_CONTEXT "_add_cargo_targets")
 
     _corrosion_option_passthrough_helper(NO_LINKER_OVERRIDE GGC no_linker_override)
     _corrosion_arg_passthrough_helper(CRATE_TYPES GGC crate_types)
@@ -222,18 +237,17 @@ function(_generator_add_cargo_targets)
     math(EXPR ws_mems_len-1 "${ws_mems_len} - 1")
 
     set(created_targets "")
+    set(available_package_names "")
     foreach(ix RANGE ${pkgs_len-1})
         string(JSON pkg GET "${packages}" ${ix})
         string(JSON pkg_id GET "${pkg}" "id")
         string(JSON pkg_name GET "${pkg}" "name")
         string(JSON pkg_manifest_path GET "${pkg}" "manifest_path")
         string(JSON pkg_version GET "${pkg}" "version")
+        list(APPEND available_package_names "${pkg_name}")
 
         if(DEFINED GGC_CRATES)
             if(NOT pkg_name IN_LIST GGC_CRATES)
-                message(DEBUG "Package `${pkg_name}` was not in the `CRATES` allowlist passed to "
-                    "corrosion_import_crate. Ignoring the package."
-                )
                 continue()
             endif()
         endif()
@@ -275,7 +289,20 @@ function(_generator_add_cargo_targets)
     endforeach()
 
     if(NOT created_targets)
-        message(FATAL_ERROR "found no targets in ${pkgs_len} packages")
+        set(crates_error_message "")
+        if(DEFINED GGC_CRATES)
+            set(crates_error_message "\n`corrosion_import_crate()` was called with the `CRATES` "
+                "parameter set to `${GGC_CRATES}`. Corrosion will only attempt to import packages matching "
+                    "names from this list."
+            )
+        endif()
+        message(FATAL_ERROR
+                "Found no targets in ${pkgs_len} packages."
+                ${crates_error_message}.
+                "\nPlease keep in mind that corrosion will only import Rust `bin` targets or"
+                "`staticlib` or `cdylib` library targets."
+                "The following packages were found in the Manifest: ${available_package_names}"
+        )
     else()
         message(DEBUG "Corrosion created the following CMake targets: ${created_targets}")
     endif()
@@ -283,21 +310,4 @@ function(_generator_add_cargo_targets)
     if(GGC_IMPORTED_CRATES)
         set(${GGC_IMPORTED_CRATES} "${created_targets}" PARENT_SCOPE)
     endif()
-
-    foreach(target_name ${created_targets})
-        foreach(output_var RUNTIME_OUTPUT_DIRECTORY ARCHIVE_OUTPUT_DIRECTORY LIBRARY_OUTPUT_DIRECTORY PDB_OUTPUT_DIRECTORY)
-            get_target_property(output_dir ${target_name} "${output_var}")
-            if (NOT output_dir AND DEFINED "CMAKE_${output_var}")
-                set_property(TARGET ${target_name} PROPERTY ${output_var} "${CMAKE_${output_var}}")
-            endif()
-
-            foreach(config_type ${CMAKE_CONFIGURATION_TYPES})
-                string(TOUPPER "${config_type}" config_type_upper)
-                get_target_property(output_dir ${target_name} "${output_var}_${config_type_upper}")
-                if (NOT output_dir AND DEFINED "CMAKE_${output_var}_${config_type_upper}")
-                    set_property(TARGET ${target_name} PROPERTY "${output_var}_${config_type_upper}" "${CMAKE_${output_var}_${config_type_upper}}")
-                endif()
-            endforeach()
-        endforeach()
-    endforeach()
 endfunction()
