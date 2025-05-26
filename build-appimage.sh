@@ -51,7 +51,7 @@ cp Data/linux-env.sh ${APPDIR_HOOKS}
 
 # Build the AppDir directory for this image
 mkdir -p AppDir
-./Tools/linuxdeploy \
+./Tools/linuxdeploy --appimage-extract-and-run \
 	--appdir=./AppDir \
 	-e ./build/Binaries/dolphin-emu \
 	-d ./Data/slippi-online.desktop \
@@ -90,6 +90,6 @@ fi
 rm ./AppDir/usr/lib/libgmodule*
 
 # Bake appimage
-UPDATE_INFORMATION="${UPDATE_INFORMATION}" OUTPUT="${OUTPUT}" ./Tools/linuxdeploy-update-plugin --appdir=./AppDir/
+UPDATE_INFORMATION="${UPDATE_INFORMATION}" OUTPUT="${OUTPUT}" ./Tools/linuxdeploy-update-plugin --appimage-extract-and-run --appdir=./AppDir/
 
 unset NO_STRIP
